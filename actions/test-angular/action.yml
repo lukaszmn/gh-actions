@@ -1,0 +1,47 @@
+name: Test Angular Frontend
+description: Checks out the repository, installs Node.js dependencies, and runs the frontend test command.
+
+inputs:
+  node_version:
+    description: Node.js version to install.
+    required: false
+    default: '22'
+  cache_dependency_path:
+    description: Dependency file used for npm cache.
+    required: false
+    default: frontend/package-lock.json
+  working_directory:
+    description: Working directory for npm commands.
+    required: false
+    default: frontend
+  install_command:
+    description: Command used to install dependencies.
+    required: false
+    default: npm ci
+  test_command:
+    description: Command used to execute frontend tests.
+    required: false
+    default: npx vitest run
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node_version }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.cache_dependency_path }}
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.install_command }}
+
+    - name: Run frontend tests
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.test_command }}

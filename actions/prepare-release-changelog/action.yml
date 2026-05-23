@@ -1,0 +1,48 @@
+name: Prepare Release Changelog
+description: Extracts release notes from the Unreleased section and rolls the changelog forward for the current version.
+
+inputs:
+  version_tag:
+    description: Release tag, for example v1.2.3.
+    required: true
+  changelog_path:
+    description: Path to the changelog file.
+    required: false
+    default: CHANGELOG.md
+  release_body_path:
+    description: Path to write extracted release notes.
+    required: false
+    default: release-body.md
+
+outputs:
+  release_body_path:
+    description: Path to the extracted release notes file.
+    value: ${{ steps.prepare.outputs.release_body_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare release changelog
+      id: prepare
+      shell: bash
+      run: |
+        raw_version='${{ inputs.version_tag }}'
+        version="${raw_version#v}"
+        date="$(date -u +%Y-%m-%d)"
+        changelog_path='${{ inputs.changelog_path }}'
+        release_body_path='${{ inputs.release_body_path }}'
+        temp_path="${changelog_path}.tmp"
+
+        awk '/^## \[Unreleased\]/{found=1; next} found && /^## \[/{exit} found{print}' \
+          "$changelog_path" > "$release_body_path"
+
+        awk -v ver="$version" -v date="$date" '
+          /^## \[Unreleased\]/ {
+            print "## [Unreleased]\n"
+            print "## [" ver "] - " date
+            next
+          }
+          { print }
+        ' "$changelog_path" > "$temp_path" && mv "$temp_path" "$changelog_path"
+
+        echo "release_body_path=$release_body_path" >> "$GITHUB_OUTPUT"

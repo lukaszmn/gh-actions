@@ -1,0 +1,57 @@
+name: Test .NET Project
+description: Checks out the repository, restores dependencies, runs dotnet tests, and publishes TRX results.
+
+inputs:
+  dotnet_version:
+    description: .NET SDK version to install.
+    required: false
+    default: 10.0.x
+  working_directory:
+    description: Working directory for restore and test commands.
+    required: false
+    default: .
+  restore_command:
+    description: Command used to restore dependencies.
+    required: false
+    default: dotnet restore
+  test_command:
+    description: Command used to execute the test suite.
+    required: false
+    default: dotnet test --no-restore --verbosity normal --logger "trx;LogFileName=backend-tests.trx"
+  results_glob:
+    description: Glob for test result files.
+    required: false
+    default: tests/**/TestResults/*.trx
+  check_name:
+    description: Name used when publishing test results.
+    required: false
+    default: Backend Test Results
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: ${{ inputs.dotnet_version }}
+
+    - name: Restore dependencies
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.restore_command }}
+
+    - name: Run tests
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      run: ${{ inputs.test_command }}
+
+    - name: Publish test results
+      if: ${{ always() }}
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: ${{ inputs.results_glob }}
+        check_name: ${{ inputs.check_name }}
+        comment_mode: off

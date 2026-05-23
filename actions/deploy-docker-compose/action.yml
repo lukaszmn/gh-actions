@@ -1,0 +1,49 @@
+name: Deploy Docker Compose Stack
+description: Connects to a remote host over SSH, logs into a registry, and restarts a Docker Compose stack.
+
+inputs:
+  host:
+    description: Remote SSH host.
+    required: true
+  username:
+    description: Remote SSH username.
+    required: true
+  ssh_key:
+    description: Private SSH key for the remote host.
+    required: true
+  deploy_path:
+    description: Directory containing the deployment compose file.
+    required: true
+  registry:
+    description: Container registry hostname.
+    required: false
+    default: ghcr.io
+  registry_username:
+    description: Registry username.
+    required: true
+  registry_password:
+    description: Registry password or token.
+    required: true
+  compose_file:
+    description: Compose file name relative to deploy_path.
+    required: false
+    default: docker-compose.yml
+
+runs:
+  using: composite
+  steps:
+    - name: Deploy over SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ inputs.host }}
+        username: ${{ inputs.username }}
+        key: ${{ inputs.ssh_key }}
+        script: |
+          set -e
+          cd "${{ inputs.deploy_path }}"
+          test -f .env || (echo "ERROR: .env missing — create from .env.example" && exit 1)
+          test -f "${{ inputs.compose_file }}" || (echo "ERROR: ${{ inputs.compose_file }} missing at DEPLOY_PATH" && exit 1)
+          echo "${{ inputs.registry_password }}" | docker login ${{ inputs.registry }} -u ${{ inputs.registry_username }} --password-stdin
+          docker compose -f "${{ inputs.compose_file }}" pull
+          docker compose -f "${{ inputs.compose_file }}" up -d
+          docker image prune -f

@@ -1,0 +1,38 @@
+name: Commit File Changes
+description: Commits and pushes workspace file changes when there is something staged.
+
+inputs:
+  files:
+    description: Space-separated file paths to stage.
+    required: true
+  commit_message:
+    description: Commit message to use when changes exist.
+    required: true
+  target_branch:
+    description: Branch to push the commit to.
+    required: true
+  git_user_name:
+    description: Git author name.
+    required: false
+    default: github-actions[bot]
+  git_user_email:
+    description: Git author email.
+    required: false
+    default: github-actions[bot]@users.noreply.github.com
+
+runs:
+  using: composite
+  steps:
+    - name: Commit and push file changes
+      shell: bash
+      run: |
+        git config user.name '${{ inputs.git_user_name }}'
+        git config user.email '${{ inputs.git_user_email }}'
+        git add -- ${{ inputs.files }}
+
+        if git diff --cached --quiet; then
+          exit 0
+        fi
+
+        git commit -m '${{ inputs.commit_message }}'
+        git push origin 'HEAD:${{ inputs.target_branch }}'

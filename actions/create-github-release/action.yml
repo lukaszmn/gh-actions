@@ -1,0 +1,85 @@
+name: Create GitHub Release
+description: Checks out the repository, updates the changelog for a tag, commits the changelog, and creates a GitHub release.
+
+inputs:
+  version_tag:
+    description: Release tag, for example v1.2.3.
+    required: true
+  github_token:
+    description: Token used for checkout, changelog push, and release creation.
+    required: true
+  release_name:
+    description: Release name. Defaults to Release <tag>.
+    required: false
+    default: ''
+  changelog_path:
+    description: Path to the changelog file.
+    required: false
+    default: CHANGELOG.md
+  release_body_path:
+    description: Path to write extracted release notes.
+    required: false
+    default: release-body.md
+  target_branch:
+    description: Branch that receives the changelog commit.
+    required: false
+    default: main
+  commit_message:
+    description: Commit message used for the changelog update.
+    required: false
+    default: ''
+  git_user_name:
+    description: Git author name.
+    required: false
+    default: github-actions[bot]
+  git_user_email:
+    description: Git author email.
+    required: false
+    default: github-actions[bot]@users.noreply.github.com
+  ignore_commit_errors:
+    description: Continue even if the changelog commit or push fails.
+    required: false
+    default: 'true'
+
+outputs:
+  release_body_path:
+    description: Path to the extracted release notes file.
+    value: ${{ steps.prepare.outputs.release_body_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        token: ${{ inputs.github_token }}
+
+    - name: Prepare changelog
+      id: prepare
+      uses: lukaszmn/gh-actions/actions/prepare-release-changelog@v1
+      with:
+        version_tag: ${{ inputs.version_tag }}
+        changelog_path: ${{ inputs.changelog_path }}
+        release_body_path: ${{ inputs.release_body_path }}
+
+    - name: Commit changelog update
+      continue-on-error: ${{ inputs.ignore_commit_errors == 'true' }}
+      uses: lukaszmn/gh-actions/actions/commit-file-changes@v1
+      with:
+        files: ${{ inputs.changelog_path }}
+        commit_message: "${{ inputs.commit_message != '' && inputs.commit_message || format('chore: update CHANGELOG for {0} [skip ci]', inputs.version_tag) }}"
+        target_branch: ${{ inputs.target_branch }}
+        git_user_name: ${{ inputs.git_user_name }}
+        git_user_email: ${{ inputs.git_user_email }}
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ inputs.version_tag }}
+        name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', inputs.version_tag) }}
+        body_path: ${{ steps.prepare.outputs.release_body_path }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}

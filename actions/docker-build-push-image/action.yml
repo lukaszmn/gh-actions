@@ -1,0 +1,63 @@
+name: Docker Build And Push Image
+description: Generates image metadata and builds and pushes a Docker image.
+
+inputs:
+  image:
+    description: Fully qualified image name.
+    required: true
+  context:
+    description: Docker build context.
+    required: true
+  dockerfile:
+    description: Optional Dockerfile path.
+    required: false
+    default: ''
+  build_args:
+    description: Optional multiline Docker build arguments.
+    required: false
+    default: ''
+
+outputs:
+  tags:
+    description: Generated image tags.
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: Generated image labels.
+    value: ${{ steps.meta.outputs.labels }}
+
+runs:
+  using: composite
+  steps:
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v6
+      with:
+        images: ${{ inputs.image }}
+        tags: |
+          type=semver,pattern={{version}}
+          type=raw,value=latest
+
+    - name: Build and push image with explicit Dockerfile
+      if: ${{ inputs.dockerfile != '' }}
+      uses: docker/build-push-action@v7
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile }}
+        push: true
+        build-args: ${{ inputs.build_args }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push image
+      if: ${{ inputs.dockerfile == '' }}
+      uses: docker/build-push-action@v7
+      with:
+        context: ${{ inputs.context }}
+        push: true
+        build-args: ${{ inputs.build_args }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

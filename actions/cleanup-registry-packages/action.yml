@@ -1,0 +1,115 @@
+name: Cleanup Registry Packages
+description: Deletes old package versions while keeping the newest N versions for each package name.
+
+inputs:
+  package_names:
+    description: Newline-separated package names or image references.
+    required: true
+  min_versions_to_keep:
+    description: Number of newest versions to keep per package.
+    required: false
+    default: '3'
+  package_type:
+    description: GitHub package type.
+    required: false
+    default: container
+  owner:
+    description: Package owner. Defaults to the repository owner.
+    required: false
+    default: ''
+  owner_type:
+    description: Package owner type, either user or org.
+    required: false
+    default: user
+  github_token:
+    description: Token with permission to delete package versions.
+    required: true
+
+outputs:
+  deleted_count:
+    description: Total number of deleted package versions.
+    value: ${{ steps.cleanup.outputs.deleted_count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Cleanup package versions
+      id: cleanup
+      uses: actions/github-script@v8
+      env:
+        INPUT_PACKAGE_NAMES: ${{ inputs.package_names }}
+        INPUT_MIN_VERSIONS_TO_KEEP: ${{ inputs.min_versions_to_keep }}
+        INPUT_PACKAGE_TYPE: ${{ inputs.package_type }}
+        INPUT_OWNER: ${{ inputs.owner }}
+        INPUT_OWNER_TYPE: ${{ inputs.owner_type }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const owner = process.env.INPUT_OWNER || context.repo.owner;
+          const ownerType = process.env.INPUT_OWNER_TYPE;
+          const ownerField = process.env.INPUT_OWNER_TYPE === 'org' ? 'org' : 'username';
+          const packageType = process.env.INPUT_PACKAGE_TYPE;
+          const keepCount = Number.parseInt(process.env.INPUT_MIN_VERSIONS_TO_KEEP, 10);
+          const rawNames = process.env.INPUT_PACKAGE_NAMES
+            .split(/\r?\n/)
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+
+          if (!Number.isInteger(keepCount) || keepCount < 0) {
+            core.setFailed('min_versions_to_keep must be a non-negative integer');
+            return;
+          }
+
+          const normalizePackageName = (name) => {
+            let normalized = name.replace(/^https?:\/\//, '');
+
+            if (normalized.startsWith('ghcr.io/')) {
+              normalized = normalized.slice('ghcr.io/'.length);
+            }
+
+            if (normalized.startsWith(`${owner}/`)) {
+              normalized = normalized.slice(owner.length + 1);
+            }
+
+            return normalized;
+          };
+
+          const listVersions = ownerType === 'org'
+            ? github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg
+            : github.rest.packages.getAllPackageVersionsForPackageOwnedByUser;
+          const deleteVersion = ownerType === 'org'
+            ? github.rest.packages.deletePackageVersionForOrg
+            : github.rest.packages.deletePackageVersionForUser;
+
+          let deletedCount = 0;
+
+          for (const rawName of rawNames) {
+            const packageName = normalizePackageName(rawName);
+            core.info(`Inspecting package ${packageName}`);
+
+            const versions = await github.paginate(listVersions, {
+              [ownerField]: owner,
+              package_type: packageType,
+              package_name: packageName,
+              per_page: 100,
+            });
+
+            const versionsToDelete = versions
+              .slice()
+              .sort((left, right) => new Date(right.created_at) - new Date(left.created_at))
+              .slice(keepCount);
+
+            for (const version of versionsToDelete) {
+              await deleteVersion({
+                [ownerField]: owner,
+                package_type: packageType,
+                package_name: packageName,
+                package_version_id: version.id,
+              });
+
+              deletedCount += 1;
+              core.info(`Deleted ${packageName} version ${version.id}`);
+            }
+          }
+
+          core.setOutput('deleted_count', String(deletedCount));

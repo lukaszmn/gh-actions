@@ -1,0 +1,87 @@
+name: Detect Changed Paths
+description: Detects changed files for the current ref and flags matching path groups.
+
+inputs:
+  checks_json:
+    description: Optional JSON array of checks in the form [{"name":"frontend","regex":"^client/"}].
+    required: true
+
+outputs:
+  changed_files:
+    description: Newline-separated list of changed files.
+    value: ${{ steps.detect.outputs.changed_files }}
+  results_json:
+    description: JSON object containing all named check results, plus "any" key that is true if any check is true.
+    value: ${{ steps.detect.outputs.results_json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Detect changed paths
+      id: detect
+      shell: bash
+      env:
+        CHECKS_JSON: ${{ inputs.checks_json }}
+        EVENT_BEFORE: ${{ github.event.before }}
+      run: |
+        if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          previous_tag="$(git tag --sort=-v:refname | grep -Fvx "$GITHUB_REF_NAME" | head -n 1 || true)"
+
+          if [ -n "$previous_tag" ]; then
+            changed_files="$(git diff --name-only "$previous_tag" "$GITHUB_SHA")"
+          else
+            changed_files="$(git ls-tree -r --name-only "$GITHUB_SHA")"
+          fi
+        elif [ -n "$EVENT_BEFORE" ] && [ "$EVENT_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+          changed_files="$(git diff --name-only "$EVENT_BEFORE" "$GITHUB_SHA")"
+        else
+          changed_files="$(git ls-tree -r --name-only "$GITHUB_SHA")"
+        fi
+
+        {
+          echo 'changed_files<<EOF'
+          echo "$changed_files"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+        changed_files_path="$RUNNER_TEMP/detect-changed-paths.txt"
+        printf '%s\n' "$changed_files" > "$changed_files_path"
+        export CHANGED_FILES_PATH="$changed_files_path"
+
+        python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        import os
+        import re
+
+        changed_files_path = os.environ["CHANGED_FILES_PATH"]
+        checks_json = os.environ["CHECKS_JSON"].strip()
+
+        with open(changed_files_path, encoding="utf-8") as handle:
+          changed_files = [line.rstrip("\n") for line in handle if line.rstrip("\n")]
+
+        def matches(regex: str) -> bool:
+          pattern = re.compile(regex)
+          return any(pattern.search(path) for path in changed_files)
+
+        checks = json.loads(checks_json)
+        if not isinstance(checks, list):
+          raise ValueError("checks_json must be a JSON array")
+
+        results = {}
+        for item in checks:
+          if not isinstance(item, dict) or "name" not in item or "regex" not in item:
+            raise ValueError("Each checks_json item must include name and regex")
+
+          results[str(item["name"])] = matches(str(item["regex"]))
+
+        results["any"] = any(results.values())
+
+        print("results_json<<EOF")
+        print(json.dumps(results, separators=(",", ":")))
+        print("EOF")
+        PY
