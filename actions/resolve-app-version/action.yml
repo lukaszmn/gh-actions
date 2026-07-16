@@ -1,0 +1,46 @@
+name: Resolve App Version
+description: Resolves a deployable version string from the current ref — version tags as-is, other refs suffixed with a short commit SHA.
+
+inputs:
+  sha_length:
+    description: Number of commit-SHA characters to append for non-tag refs.
+    required: false
+    default: '7'
+
+outputs:
+  version:
+    description: Resolved version string, e.g. "v2.1" for a tag or "main-a1b2c3d" for a branch.
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # No checkout needed — this reads the ref/SHA from the runner environment only.
+    - name: Resolve app version
+      id: resolve
+      shell: bash
+      env:
+        SHA_LENGTH: ${{ inputs.sha_length }}
+      run: |
+        set -euo pipefail
+
+        case "$SHA_LENGTH" in
+          ''|*[!0-9]*) echo "::error::sha_length must be a positive integer, got '$SHA_LENGTH'"; exit 1 ;;
+        esac
+        if [ "$SHA_LENGTH" -lt 1 ] || [ "$SHA_LENGTH" -gt 40 ]; then
+          echo "::error::sha_length must be between 1 and 40, got '$SHA_LENGTH'"
+          exit 1
+        fi
+
+        # A tag ref identifies a release on its own. Any other ref (a branch, e.g. a
+        # workflow_dispatch deploy from main) does not say which commit is deployed,
+        # so append a short SHA. Actions expressions have no substring function, which
+        # is why this needs a shell step.
+        if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          version="$GITHUB_REF_NAME"
+        else
+          version="$GITHUB_REF_NAME-${GITHUB_SHA:0:$SHA_LENGTH}"
+        fi
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "Resolved app version: $version"
