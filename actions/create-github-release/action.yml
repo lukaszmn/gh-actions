@@ -40,6 +40,10 @@ inputs:
     description: Continue even if the changelog commit or push fails.
     required: false
     default: 'true'
+  version_tag_pattern:
+    description: Regex that version_tag must match. Guards against releasing a branch name such as "main".
+    required: false
+    default: '^v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.-]+)?$'
 
 outputs:
   release_body_path:
@@ -49,6 +53,31 @@ outputs:
 runs:
   using: composite
   steps:
+    # Runs before checkout/changelog/commit so a bad tag fails before anything is mutated.
+    # A caller passing ${{ github.ref_name }} from a non-tag ref yields a branch name such
+    # as "main", which would otherwise cut a "main" tag/release and roll the curated
+    # Unreleased changelog section into a release that does not exist.
+    - name: Validate version tag
+      shell: bash
+      env:
+        VERSION_TAG: ${{ inputs.version_tag }}
+        VERSION_TAG_PATTERN: ${{ inputs.version_tag_pattern }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$VERSION_TAG" ]; then
+          echo "::error::version_tag is empty."
+          exit 1
+        fi
+
+        if ! printf '%s' "$VERSION_TAG" | grep -qE "$VERSION_TAG_PATTERN"; then
+          echo "::error::version_tag '$VERSION_TAG' does not look like a version tag (expected to match: $VERSION_TAG_PATTERN)."
+          echo "::error::If that is a branch name, the calling workflow is passing \${{ github.ref_name }} on a non-tag ref. Gate the release job with: if: startsWith(github.ref, 'refs/tags/')"
+          exit 1
+        fi
+
+        echo "version_tag '$VERSION_TAG' validated."
+
     - name: Checkout repository
       uses: actions/checkout@v5
       with:
