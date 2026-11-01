@@ -25,10 +25,10 @@ fail=0
 run() { # env assignments as NAME=VALUE args
   : > "$FAKE_LOG"
   local DEPLOY_PATH="$T/srv" DEPLOY_COMPOSE_FILE=docker-compose.yml DEPLOY_REGISTRY=ghcr.io \
-        DEPLOY_REGISTRY_USERNAME=lukaszmn DEPLOY_REGISTRY_PASSWORD='s3cr3t-tok' DEPLOY_APP_TAG=''
+        DEPLOY_REGISTRY_USERNAME=lukaszmn DEPLOY_REGISTRY_TOKEN='s3cr3t-tok' DEPLOY_APP_TAG=''
   local kv; for kv in "$@"; do local "${kv%%=*}=${kv#*=}"; done
   local payload
-  payload=$(for name in DEPLOY_PATH DEPLOY_COMPOSE_FILE DEPLOY_REGISTRY DEPLOY_REGISTRY_USERNAME DEPLOY_REGISTRY_PASSWORD DEPLOY_APP_TAG; do
+  payload=$(for name in DEPLOY_PATH DEPLOY_COMPOSE_FILE DEPLOY_REGISTRY DEPLOY_REGISTRY_USERNAME DEPLOY_REGISTRY_TOKEN DEPLOY_APP_TAG; do
       printf '%s=%s\n' "$name" "$(sh_quote "${!name}")"; done; cat "$SCRIPT")
   if [[ ${MODE:-stdin} == stdin ]]; then
     # the pinned path: `ssh … 'sh -s'` with the payload on stdin
@@ -89,7 +89,7 @@ if [[ $(id -u) != 0 ]]; then
   chmod 600 "$T/srv/.env"
 fi
 [[ -z "$(ls "${TMPDIR:-/tmp}" | grep '^env.app-tag\.' || true)" ]] && ok "no temp copy of .env left behind" || bad "temp copy left"
-fresh 'X=1\n'; run DEPLOY_REGISTRY_PASSWORD=; [[ $? != 0 ]] && grep -q 'no registry credential' "$T/out" && ok "empty credential fails loudly" || bad "empty cred"
+fresh 'X=1\n'; run DEPLOY_REGISTRY_TOKEN=; [[ $? != 0 ]] && grep -q 'no registry credential' "$T/out" && ok "empty credential fails loudly" || bad "empty cred"
 rm "$T/srv/.env"; touch "$T/srv/docker-compose.yml"; run; [[ $? != 0 ]] && grep -q '.env missing' "$T/out" && ok ".env missing fails" || bad "env missing"
 fresh 'X=1\n'; run DEPLOY_PATH=; [[ $? != 0 ]] && grep -q 'deploy_path is empty' "$T/out" && ok "empty deploy_path fails" || bad "empty path"
 fresh 'X=1\n'; run "DEPLOY_PATH=$T/srv/it's \$(touch $T/PWNED2)"; [[ ! -e $T/PWNED2 ]] && ok "quoted path: no injection" || bad "path injection"

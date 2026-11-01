@@ -8,8 +8,7 @@
 #   DEPLOY_COMPOSE_FILE      compose file, relative to DEPLOY_PATH
 #   DEPLOY_REGISTRY          registry hostname for `docker login`
 #   DEPLOY_REGISTRY_USERNAME registry username
-#   DEPLOY_REGISTRY_PASSWORD the one credential chosen by action.yml (ghcr_pull_token,
-#                            else registry_password) — read from stdin by docker login
+#   DEPLOY_REGISTRY_TOKEN    the read-only ghcr_pull_token — read from stdin by docker login
 #   DEPLOY_APP_TAG           optional image tag written to .env as APP_TAG
 #
 # POSIX sh on purpose: appleboy/ssh-action runs it in the remote user's login shell.
@@ -62,14 +61,14 @@ main() {
     exit 1
   fi
 
-  if [ -z "${DEPLOY_REGISTRY_PASSWORD:-}" ]; then
-    echo "ERROR: no registry credential (pass ghcr_pull_token or registry_password)" >&2
+  if [ -z "${DEPLOY_REGISTRY_TOKEN:-}" ]; then
+    echo "ERROR: no registry credential (pass ghcr_pull_token)" >&2
     exit 1
   fi
   # printf is a shell builtin: the credential never appears in a process's arguments.
-  printf '%s\n' "$DEPLOY_REGISTRY_PASSWORD" |
+  printf '%s\n' "$DEPLOY_REGISTRY_TOKEN" |
     docker login "$DEPLOY_REGISTRY" -u "$DEPLOY_REGISTRY_USERNAME" --password-stdin
-  unset DEPLOY_REGISTRY_PASSWORD
+  unset DEPLOY_REGISTRY_TOKEN
 
   if [ -n "${DEPLOY_APP_TAG:-}" ]; then
     # Pull the new tag first, handing it to compose through the environment (which

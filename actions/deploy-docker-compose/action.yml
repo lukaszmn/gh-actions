@@ -21,12 +21,6 @@ inputs:
   registry_username:
     description: Registry username.
     required: true
-  registry_password:
-    description: >-
-      Registry password or token (older form; prefer ghcr_pull_token). Optional when
-      ghcr_pull_token is given (which then takes its place); one of the two is required.
-    required: false
-    default: ''
   compose_file:
     description: Compose file name relative to deploy_path.
     required: false
@@ -43,11 +37,11 @@ inputs:
     default: ''
   ghcr_pull_token:
     description: >-
-      Read-only (read:packages) token used on the server for `docker login` instead of
-      registry_password, so a token with wider scopes never reaches the server. Suggested
-      secret name: GHCR_PULL_TOKEN. Empty (default) logs in with registry_password as before.
-    required: false
-    default: ''
+      Read-only token (classic PAT with only `read:packages`) used on the server for
+      `docker login`; docker keeps it there afterwards, so it must not be able to do more
+      than pull. Suggested secret name: GHCR_PULL_TOKEN. (Replaces `registry_password`,
+      removed in v2 — a delete-capable token on the server could wipe the registry.)
+    required: true
   app_tag:
     description: >-
       Image tag to deploy, e.g. the `sha_tag` output of docker-build-push-image.
@@ -69,16 +63,16 @@ runs:
         INPUT_APP_TAG: ${{ inputs.app_tag }}
         INPUT_HOST_FINGERPRINT: ${{ inputs.host_fingerprint }}
         INPUT_GHCR_PULL_TOKEN: ${{ inputs.ghcr_pull_token }}
-        INPUT_REGISTRY_PASSWORD: ${{ inputs.registry_password }}
       run: |
         set -euo pipefail
         # Masks the values for the steps after this one (the env block above has already
         # been logged by then, and only a value's first line is masked). Secrets are
         # masked by the runner anyway; this covers a caller passing a plain value.
         if [[ -n "$INPUT_GHCR_PULL_TOKEN" ]]; then echo "::add-mask::$INPUT_GHCR_PULL_TOKEN"; fi
-        if [[ -n "$INPUT_REGISTRY_PASSWORD" ]]; then echo "::add-mask::$INPUT_REGISTRY_PASSWORD"; fi
-        if [[ -z "$INPUT_GHCR_PULL_TOKEN" && -z "$INPUT_REGISTRY_PASSWORD" ]]; then
-          echo "::error::Pass ghcr_pull_token or registry_password."
+        # `required: true` is not enforced for composite actions, and a missing secret
+        # evaluates to ''. registry_password was removed in v2: say so to old callers.
+        if [[ -z "$INPUT_GHCR_PULL_TOKEN" ]]; then
+          echo "::error::Pass ghcr_pull_token (classic PAT with only read:packages, e.g. secrets.GHCR_PULL_TOKEN). registry_password was removed in v2."
           exit 1
         fi
         # A host or user starting with "-" would be read by ssh as an option.
@@ -128,7 +122,7 @@ runs:
         DEPLOY_COMPOSE_FILE: ${{ inputs.compose_file }}
         DEPLOY_REGISTRY: ${{ inputs.registry }}
         DEPLOY_REGISTRY_USERNAME: ${{ inputs.registry_username }}
-        DEPLOY_REGISTRY_PASSWORD: ${{ inputs.ghcr_pull_token != '' && inputs.ghcr_pull_token || inputs.registry_password }}
+        DEPLOY_REGISTRY_TOKEN: ${{ inputs.ghcr_pull_token }}
         DEPLOY_APP_TAG: ${{ inputs.app_tag }}
       with:
         host: ${{ inputs.host }}
@@ -136,7 +130,7 @@ runs:
         key: ${{ inputs.ssh_key }}
         # drone-ssh prepends each as NAME='value' (single-quote escaped); the format
         # drops its default `export` so none of them reaches docker compose.
-        envs: DEPLOY_PATH,DEPLOY_COMPOSE_FILE,DEPLOY_REGISTRY,DEPLOY_REGISTRY_USERNAME,DEPLOY_REGISTRY_PASSWORD,DEPLOY_APP_TAG
+        envs: DEPLOY_PATH,DEPLOY_COMPOSE_FILE,DEPLOY_REGISTRY,DEPLOY_REGISTRY_USERNAME,DEPLOY_REGISTRY_TOKEN,DEPLOY_APP_TAG
         envs_format: '{NAME}={VALUE}'
         script: ${{ steps.remote_script.outputs.script }}
 
@@ -156,7 +150,7 @@ runs:
         DEPLOY_COMPOSE_FILE: ${{ inputs.compose_file }}
         DEPLOY_REGISTRY: ${{ inputs.registry }}
         DEPLOY_REGISTRY_USERNAME: ${{ inputs.registry_username }}
-        DEPLOY_REGISTRY_PASSWORD: ${{ inputs.ghcr_pull_token != '' && inputs.ghcr_pull_token || inputs.registry_password }}
+        DEPLOY_REGISTRY_TOKEN: ${{ inputs.ghcr_pull_token }}
         DEPLOY_APP_TAG: ${{ inputs.app_tag }}
       run: |
         set -euo pipefail
@@ -189,7 +183,7 @@ runs:
         # script, read by `sh -s`: nothing secret is in any command line, here or there.
         {
           for name in DEPLOY_PATH DEPLOY_COMPOSE_FILE DEPLOY_REGISTRY DEPLOY_REGISTRY_USERNAME \
-                      DEPLOY_REGISTRY_PASSWORD DEPLOY_APP_TAG; do
+                      DEPLOY_REGISTRY_TOKEN DEPLOY_APP_TAG; do
             printf '%s=%s\n' "$name" "$(sh_quote "${!name}")"
           done
           cat "$SCRIPT_PATH"

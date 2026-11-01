@@ -14,13 +14,12 @@ The compose file and its `.env` live on the server in `deploy_path`; the action 
 | `deploy_path` | yes | | directory on the server holding the compose file and `.env` |
 | `registry` | no | `ghcr.io` | registry to `docker login` to |
 | `registry_username` | yes | | registry user |
-| `registry_password` | one of these two | `''` | registry password/token (older form; prefer `ghcr_pull_token`) |
-| `ghcr_pull_token` | one of these two | `''` | read-only token; replaces `registry_password` when set |
+| `ghcr_pull_token` | yes | | read-only registry token (`read:packages`) |
 | `compose_file` | no | `docker-compose.yml` | relative to `deploy_path` |
 | `host_fingerprint` | no | `''` | pins the server's SSH host key |
 | `app_tag` | no | `''` | image tag written to the server's `.env` as `APP_TAG` |
 
-Every input added after v1 (`host_fingerprint`, `ghcr_pull_token`, `app_tag`) is optional, and leaving it out behaves as before.
+**v2 (breaking):** `registry_password` is gone; pass `ghcr_pull_token` instead. Callers still on `@v1` are unaffected. The other inputs added since v1 (`host_fingerprint`, `app_tag`) are optional, and leaving them out behaves as before.
 
 ## `host_fingerprint` — verify the server
 
@@ -52,7 +51,7 @@ registry_username: <the PAT owner>
 ghcr_pull_token: ${{ secrets.GHCR_PULL_TOKEN }}
 ```
 
-When set, it is the only credential sent to the server; `registry_password` can then be dropped. Keep the delete-capable token only where it is needed — as `GHCR_CLEANUP_TOKEN` for [cleanup-registry-packages](../cleanup-registry-packages/README.md#tokens-one-per-job-named-for-the-job)' `cleanup_token` — so it never reaches the server. Switching an existing server: run `docker logout ghcr.io` there once, so the old wider token is no longer stored. Either way `docker login` reads it from stdin (`--password-stdin`), never from its arguments. Docker keeps it in the server user's `~/.docker/config.json` afterwards, as before.
+It is the only credential sent to the server. Keep the delete-capable token only where it is needed — as `GHCR_CLEANUP_TOKEN` for [cleanup-registry-packages](../cleanup-registry-packages/README.md#tokens-one-per-job-named-for-the-job)' `cleanup_token` — so it never reaches the server. Switching an existing server: run `docker logout ghcr.io` there once, so the old wider token is no longer stored. `docker login` reads it from stdin (`--password-stdin`), never from its arguments. Docker keeps it in the server user's `~/.docker/config.json` afterwards, as before.
 
 Where it is visible on the server depends on the SSH path — see [How values reach the server](#how-values-reach-the-server).
 
