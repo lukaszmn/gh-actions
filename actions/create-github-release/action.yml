@@ -79,7 +79,7 @@ runs:
         echo "version_tag '$VERSION_TAG' validated."
 
     - name: Checkout repository
-      uses: actions/checkout@v5
+      uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       with:
         fetch-depth: 0
         token: ${{ inputs.github_token }}
@@ -103,7 +103,7 @@ runs:
         git_user_email: ${{ inputs.git_user_email }}
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         tag_name: ${{ inputs.version_tag }}
         name: ${{ inputs.release_name != '' && inputs.release_name || format('Release {0}', inputs.version_tag) }}

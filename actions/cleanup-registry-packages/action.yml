@@ -35,7 +35,7 @@ runs:
   steps:
     - name: Cleanup package versions
       id: cleanup
-      uses: actions/github-script@v8
+      uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
       env:
         INPUT_PACKAGE_NAMES: ${{ inputs.package_names }}
         INPUT_MIN_VERSIONS_TO_KEEP: ${{ inputs.min_versions_to_keep }}
