@@ -24,22 +24,46 @@ outputs:
   labels:
     description: Generated image labels.
     value: ${{ steps.meta.outputs.labels }}
+  sha_tag:
+    description: >-
+      The commit tag pushed with every build, `sha-<7-char short sha>` (tag only, no
+      image name). Pass it to deploy-docker-compose's `app_tag` to deploy exactly
+      this build.
+    value: ${{ steps.sha_tag.outputs.sha_tag }}
 
 runs:
   using: composite
   steps:
     - name: Extract metadata
       id: meta
-      uses: docker/metadata-action@v6
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
       with:
         images: ${{ inputs.image }}
+        # type=sha gives every build a tag unique to its commit, which a deploy can name
+        # (and a rollback re-deploy); semver and latest are unchanged. Its priority is lowest,
+        # so the `version` label stays what it was.
         tags: |
           type=semver,pattern={{version}}
           type=raw,value=latest
+          type=sha,prefix=sha-,format=short
+
+    - name: Find the sha tag
+      id: sha_tag
+      shell: bash
+      env:
+        TAGS: ${{ steps.meta.outputs.tags }}
+      run: |
+        set -euo pipefail
+        sha_tag=$(printf '%s\n' "$TAGS" | sed -n 's/^.*:\(sha-[0-9a-f]\{7,\}\)$/\1/p' | head -n 1)
+        if [[ -z "$sha_tag" ]]; then
+          echo "::error::metadata-action produced no sha-<short> tag."
+          exit 1
+        fi
+        echo "sha_tag=$sha_tag" >>"$GITHUB_OUTPUT"
 
     - name: Build and push image with explicit Dockerfile
       if: ${{ inputs.dockerfile != '' }}
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile }}
@@ -52,7 +76,7 @@ runs:
 
     - name: Build and push image
       if: ${{ inputs.dockerfile == '' }}
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: ${{ inputs.context }}
         push: true

@@ -3,7 +3,7 @@ description: Connects to a remote host over SSH, logs into a registry, and resta
 
 inputs:
   host:
-    description: Remote SSH host.
+    description: Remote SSH host (optionally host:port).
     required: true
   username:
     description: Remote SSH username.
@@ -12,7 +12,7 @@ inputs:
     description: Private SSH key for the remote host.
     required: true
   deploy_path:
-    description: Directory containing the deployment compose file.
+    description: Directory containing the deployment compose file and its .env.
     required: true
   registry:
     description: Container registry hostname.
@@ -22,28 +22,174 @@ inputs:
     description: Registry username.
     required: true
   registry_password:
-    description: Registry password or token.
-    required: true
+    description: >-
+      Registry password or token. Optional when ghcr_pull_token is given (which then
+      takes its place); one of the two is required.
+    required: false
+    default: ''
   compose_file:
     description: Compose file name relative to deploy_path.
     required: false
     default: docker-compose.yml
+  host_fingerprint:
+    description: >-
+      SHA256 fingerprint of the server's SSH host key, e.g. the `SHA256:…` field of
+      `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` (the whole output line is
+      accepted too; several fingerprints may be given, separated by whitespace, to
+      rotate a key). When set, the scanned host key must match it or the deploy fails
+      before connecting, and the connection uses OpenSSH with strict host key checking.
+      Empty (default) keeps the old behaviour: the host key is NOT verified.
+    required: false
+    default: ''
+  ghcr_pull_token:
+    description: >-
+      Read-only (read:packages) token used on the server for `docker login` instead of
+      registry_password, so a token with wider scopes never reaches the server. Empty
+      (default) logs in with registry_password as before.
+    required: false
+    default: ''
+  app_tag:
+    description: >-
+      Image tag to deploy, e.g. the `sha_tag` output of docker-build-push-image.
+      When set, it is pulled and then written as `APP_TAG=<value>` into the .env in
+      deploy_path (replacing an existing APP_TAG line, other lines untouched) before
+      `up -d`; the compose file must reference `${APP_TAG}`. Empty (default) leaves
+      .env alone.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - name: Deploy over SSH
-      uses: appleboy/ssh-action@v1.0.3
+    - name: Validate deploy inputs
+      shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_APP_TAG: ${{ inputs.app_tag }}
+        INPUT_HOST_FINGERPRINT: ${{ inputs.host_fingerprint }}
+        INPUT_GHCR_PULL_TOKEN: ${{ inputs.ghcr_pull_token }}
+        INPUT_REGISTRY_PASSWORD: ${{ inputs.registry_password }}
+      run: |
+        set -euo pipefail
+        # Normally masked already, being secrets; masked again in case a caller passes
+        # them from somewhere that is not.
+        if [[ -n "$INPUT_GHCR_PULL_TOKEN" ]]; then echo "::add-mask::$INPUT_GHCR_PULL_TOKEN"; fi
+        if [[ -n "$INPUT_REGISTRY_PASSWORD" ]]; then echo "::add-mask::$INPUT_REGISTRY_PASSWORD"; fi
+        if [[ -z "$INPUT_GHCR_PULL_TOKEN" && -z "$INPUT_REGISTRY_PASSWORD" ]]; then
+          echo "::error::Pass ghcr_pull_token or registry_password."
+          exit 1
+        fi
+        # A host or user starting with "-" would be read by ssh as an option.
+        if [[ "$INPUT_HOST" == -* || "$INPUT_USERNAME" == -* ]]; then
+          echo "::error::host and username must not start with '-'."
+          exit 1
+        fi
+        tag_re='^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$'
+        if [[ -n "$INPUT_APP_TAG" ]] && ! [[ "$INPUT_APP_TAG" =~ $tag_re ]]; then
+          echo "::error::app_tag is not a valid image tag ([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})."
+          exit 1
+        fi
+        if [[ -z "$INPUT_HOST_FINGERPRINT" ]]; then
+          echo "::warning::host_fingerprint is not set: the server's SSH host key is not verified."
+        fi
+
+    # --- No host_fingerprint: appleboy/ssh-action, host key NOT verified (as before) ---
+    # appleboy/ssh-action has a `fingerprint` input of its own, deliberately unused: its
+    # Go client (x/crypto v0.17.0, drone-ssh 1.7.3) asks for ECDSA and RSA host keys
+    # before Ed25519, so an Ed25519 fingerprint fails on any server that has those too.
+
+    - name: Read remote script
+      id: remote_script
+      if: ${{ inputs.host_fingerprint == '' }}
+      shell: bash
+      env:
+        SCRIPT_PATH: ${{ github.action_path }}/remote-deploy.sh
+      run: |
+        set -euo pipefail
+        delimiter="EOF_$(openssl rand -hex 16)"
+        {
+          echo "script<<$delimiter"
+          cat "$SCRIPT_PATH"
+          echo "$delimiter"
+        } >>"$GITHUB_OUTPUT"
+
+    - name: Deploy over SSH (host key not verified)
+      if: ${{ inputs.host_fingerprint == '' }}
+      uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+      env:
+        DEPLOY_PATH: ${{ inputs.deploy_path }}
+        DEPLOY_COMPOSE_FILE: ${{ inputs.compose_file }}
+        DEPLOY_REGISTRY: ${{ inputs.registry }}
+        DEPLOY_REGISTRY_USERNAME: ${{ inputs.registry_username }}
+        DEPLOY_REGISTRY_PASSWORD: ${{ inputs.ghcr_pull_token != '' && inputs.ghcr_pull_token || inputs.registry_password }}
+        DEPLOY_APP_TAG: ${{ inputs.app_tag }}
       with:
         host: ${{ inputs.host }}
         username: ${{ inputs.username }}
         key: ${{ inputs.ssh_key }}
-        script: |
-          set -e
-          cd "${{ inputs.deploy_path }}"
-          test -f .env || (echo "ERROR: .env missing — create from .env.example" && exit 1)
-          test -f "${{ inputs.compose_file }}" || (echo "ERROR: ${{ inputs.compose_file }} missing at DEPLOY_PATH" && exit 1)
-          echo "${{ inputs.registry_password }}" | docker login ${{ inputs.registry }} -u ${{ inputs.registry_username }} --password-stdin
-          docker compose -f "${{ inputs.compose_file }}" pull
-          docker compose -f "${{ inputs.compose_file }}" up -d
-          docker image prune -f
+        # drone-ssh prepends each as NAME='value' (single-quote escaped); the format
+        # drops its default `export` so none of them reaches docker compose.
+        envs: DEPLOY_PATH,DEPLOY_COMPOSE_FILE,DEPLOY_REGISTRY,DEPLOY_REGISTRY_USERNAME,DEPLOY_REGISTRY_PASSWORD,DEPLOY_APP_TAG
+        envs_format: '{NAME}={VALUE}'
+        script: ${{ steps.remote_script.outputs.script }}
+
+    # --- host_fingerprint set: OpenSSH against a known_hosts holding only the pinned key ---
+
+    - name: Deploy over SSH (host key pinned)
+      if: ${{ inputs.host_fingerprint != '' }}
+      shell: bash
+      env:
+        INPUT_HOST: ${{ inputs.host }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_SSH_KEY: ${{ inputs.ssh_key }}
+        INPUT_HOST_FINGERPRINT: ${{ inputs.host_fingerprint }}
+        SCRIPT_PATH: ${{ github.action_path }}/remote-deploy.sh
+        HELPERS_PATH: ${{ github.action_path }}/ssh-pinned.sh
+        DEPLOY_PATH: ${{ inputs.deploy_path }}
+        DEPLOY_COMPOSE_FILE: ${{ inputs.compose_file }}
+        DEPLOY_REGISTRY: ${{ inputs.registry }}
+        DEPLOY_REGISTRY_USERNAME: ${{ inputs.registry_username }}
+        DEPLOY_REGISTRY_PASSWORD: ${{ inputs.ghcr_pull_token != '' && inputs.ghcr_pull_token || inputs.registry_password }}
+        DEPLOY_APP_TAG: ${{ inputs.app_tag }}
+      run: |
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "$HELPERS_PATH"
+
+        # appleboy's "host:port" form, so a caller switching to this path keeps working.
+        host=$INPUT_HOST
+        port=22
+        if [[ "$host" =~ ^([^:]+):([0-9]+)$ ]]; then
+          host=${BASH_REMATCH[1]}
+          port=${BASH_REMATCH[2]}
+        fi
+
+        umask 077
+        ssh_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/deploy-ssh.XXXXXX")
+        trap 'rm -rf "$ssh_dir"' EXIT
+        # CRLF from a key pasted on Windows makes OpenSSH reject it ("invalid format").
+        printf '%s\n' "$INPUT_SSH_KEY" | tr -d '\r' >"$ssh_dir/key"
+
+        # ssh-keyscan is unauthenticated; that is fine because only a key whose
+        # fingerprint matches is kept, and ssh then refuses any other key.
+        ssh-keyscan -T 15 -p "$port" -- "$host" >"$ssh_dir/scanned" 2>/dev/null || true
+        if ! pin_known_hosts "$INPUT_HOST_FINGERPRINT" <"$ssh_dir/scanned" >"$ssh_dir/known_hosts"; then
+          echo "::error::SSH host key of $host does not match host_fingerprint — refusing to connect."
+          exit 1
+        fi
+
+        # The inputs travel on ssh's stdin as single-quoted assignments ahead of the
+        # script, read by `sh -s`: nothing secret is in any command line, here or there.
+        {
+          for name in DEPLOY_PATH DEPLOY_COMPOSE_FILE DEPLOY_REGISTRY DEPLOY_REGISTRY_USERNAME \
+                      DEPLOY_REGISTRY_PASSWORD DEPLOY_APP_TAG; do
+            printf '%s=%s\n' "$name" "$(sh_quote "${!name}")"
+          done
+          cat "$SCRIPT_PATH"
+        } | ssh -i "$ssh_dir/key" -p "$port" -l "$INPUT_USERNAME" \
+              -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \
+              -o ConnectTimeout=30 -o ServerAliveInterval=30 \
+              -- "$host" 'sh -s'
