@@ -51,7 +51,9 @@ registry_username: <the PAT owner>
 ghcr_pull_token: ${{ secrets.GHCR_PULL_TOKEN }}
 ```
 
-It is the only credential sent to the server. Keep the delete-capable token only where it is needed — as `GHCR_CLEANUP_TOKEN` for [cleanup-registry-packages](../cleanup-registry-packages/README.md#tokens-one-per-job-named-for-the-job)' `cleanup_token` — so it never reaches the server. Switching an existing server: run `docker logout ghcr.io` there once, so the old wider token is no longer stored. `docker login` reads it from stdin (`--password-stdin`), never from its arguments. Docker keeps it in the server user's `~/.docker/config.json` afterwards, as before.
+It is the only credential sent to the server. Keep the delete-capable token only where it is needed — as `GHCR_CLEANUP_TOKEN` for [cleanup-registry-packages](../cleanup-registry-packages/README.md#tokens-one-per-job-named-for-the-job)' `cleanup_token` — so it never reaches the server. `docker login` reads it from stdin (`--password-stdin`), never from its arguments, and Docker keeps it in the deploy user's `~/.docker/config.json` afterwards — each deploy overwrites that entry, so the first deploy with `ghcr_pull_token` replaces whatever token was stored before.
+
+**Switching from a wider token** (e.g. one PAT with `delete:packages` used for both deploy and cleanup): that token has already been stored on the server, so overwriting it does not undo the exposure — **revoke it** and issue fresh ones (`GHCR_PULL_TOKEN`, `GHCR_CLEANUP_TOKEN`). Run `docker logout ghcr.io` only where the old token may also be stored for another user (e.g. root, via `sudo docker login`).
 
 Where it is visible on the server depends on the SSH path — see [How values reach the server](#how-values-reach-the-server).
 

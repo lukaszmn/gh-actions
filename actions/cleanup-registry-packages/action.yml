@@ -23,8 +23,9 @@ inputs:
     default: user
   cleanup_token:
     description: >-
-      Token allowed to delete package versions: a classic PAT with `delete:packages`
-      (GITHUB_TOKEN cannot delete versions of packages owned by a user). Suggested
+      Token allowed to list and delete package versions: a classic PAT with
+      `read:packages` and `delete:packages` (GITHUB_TOKEN cannot delete versions of
+      packages owned by a user). Suggested
       secret name: GHCR_CLEANUP_TOKEN. It only needs to exist in GitHub — never pass it
       to a server (the deploy has its own read-only GHCR_PULL_TOKEN).
     required: false
@@ -51,9 +52,15 @@ runs:
         INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -euo pipefail
+        # Masks a value passed as plain text (secrets are masked by the runner anyway).
+        if [[ -n "$INPUT_CLEANUP_TOKEN" ]]; then echo "::add-mask::$INPUT_CLEANUP_TOKEN"; fi
+        if [[ -n "$INPUT_GITHUB_TOKEN" ]]; then echo "::add-mask::$INPUT_GITHUB_TOKEN"; fi
         if [[ -z "$INPUT_CLEANUP_TOKEN" && -z "$INPUT_GITHUB_TOKEN" ]]; then
-          echo "::error::Pass cleanup_token (a classic PAT with delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN)."
+          echo "::error::Pass cleanup_token (or its old name github_token): a classic PAT with read:packages and delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN."
           exit 1
+        fi
+        if [[ -n "$INPUT_CLEANUP_TOKEN" && -n "$INPUT_GITHUB_TOKEN" && "$INPUT_CLEANUP_TOKEN" != "$INPUT_GITHUB_TOKEN" ]]; then
+          echo "::notice::github_token is ignored because cleanup_token is set."
         fi
 
     - name: Cleanup package versions

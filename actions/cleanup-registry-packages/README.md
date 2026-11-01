@@ -22,10 +22,12 @@ Main inputs:
 | Secret | Classic PAT scopes | Passed to | Ends up on the server |
 |---|---|---|---|
 | `GHCR_PULL_TOKEN` | `read:packages` | deploy-docker-compose `ghcr_pull_token` | yes (`docker login` stores it) |
-| `GHCR_CLEANUP_TOKEN` | `delete:packages` | cleanup-registry-packages `cleanup_token` | no — stays in GitHub |
+| `GHCR_CLEANUP_TOKEN` | `read:packages`, `delete:packages` | cleanup-registry-packages `cleanup_token` | no — stays in GitHub |
 
 `GITHUB_TOKEN` cannot delete versions of packages owned by a **user** (403 "Resource not
-accessible"), hence a PAT; the GitHub container registry accepts only classic PATs. Keep the
+accessible by integration"), hence a PAT; GitHub Packages (the registry and its REST API)
+accepts only classic PATs. The cleanup lists versions before deleting, so it needs
+`read:packages` as well as `delete:packages`. Keep the
 delete-capable token out of the deploy, so a compromised server cannot wipe the registry.
 If the secret is environment-scoped, the job needs `environment:` set or it resolves to `''`.
 
@@ -37,7 +39,7 @@ Alternatives:
         package-name: ${{ env.NGINX_IMAGE }}
         package-type: container
         min-versions-to-keep: 3
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.GHCR_CLEANUP_TOKEN }}   # user-owned packages: a PAT, not GITHUB_TOKEN
 
     - name: Keep recent backend images, skip release-like tags
       uses: snok/container-retention-policy@v3.0.0
