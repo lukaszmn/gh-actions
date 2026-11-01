@@ -24,7 +24,7 @@ Every input added after v1 (`host_fingerprint`, `ghcr_pull_token`, `app_tag`) is
 
 ## `host_fingerprint` — verify the server
 
-Without it the server's host key is **not verified** (the run prints a warning), so anyone able to intercept the connection could pose as the server and receive the registry credential.
+Without it the server's host key is **not verified** (the run prints a warning), so anyone able to intercept the connection could pose as the server and receive the registry credential. A misnamed or undefined variable evaluates to `''` and silently lands on that unverified path too — check the run for the warning after wiring it up.
 
 Get the value on the server:
 
@@ -52,7 +52,9 @@ registry_username: <the PAT owner>
 ghcr_pull_token: ${{ secrets.GHCR_PULL_TOKEN }}
 ```
 
-When set, it is the only credential sent to the server; `registry_password` can then be dropped (keep the wider token for jobs that need it, such as registry cleanup). Either way the credential reaches `docker login` on stdin (`--password-stdin`), never on a command line. Docker keeps it in the server user's `~/.docker/config.json` afterwards, as before.
+When set, it is the only credential sent to the server; `registry_password` can then be dropped (keep the wider token for jobs that need it, such as registry cleanup). Either way `docker login` reads it from stdin (`--password-stdin`), never from its arguments. Docker keeps it in the server user's `~/.docker/config.json` afterwards, as before.
+
+Where it is visible on the server depends on the SSH path — see [How values reach the server](#how-values-reach-the-server).
 
 ## `app_tag` — deploy a specific version
 
@@ -84,13 +86,18 @@ jobs:
           app_tag: ${{ needs.build.outputs.app_tag }}
 ```
 
-On the server the action pulls with the new tag first and only then writes `APP_TAG=<value>` into `deploy_path/.env` — replacing an existing `APP_TAG=` line (later duplicates are dropped), appending one otherwise, every other line kept, the file's mode kept — and runs `up -d`. A failed pull leaves `.env` naming the tag that is still running. The value must be a valid Docker tag (`[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}`).
+The `.env` written is the one in `deploy_path` (the one the action requires). Compose reads the `.env` beside the compose file, so a `compose_file` in a subdirectory would not see it — keep the two together.
 
-**Rollback:** re-run the deploy job of the earlier workflow run whose version you want back (Actions → that run → *Re-run jobs* → the deploy job only). It passes that run's tag again, which is still in the registry as long as retention has not deleted it. By hand on the server: edit `APP_TAG` in `.env` and `docker compose up -d`.
+On the server the action pulls with the new tag first and only then writes `APP_TAG=<value>` into `deploy_path/.env` — replacing an existing `APP_TAG=` line (later duplicates are dropped), appending one otherwise, every other line kept — and runs `up -d`. The file is written in place, so its owner, mode and a symlink are kept, and a read-only `.env` makes the deploy fail rather than being replaced. A failed pull leaves `.env` naming the tag that is still running. The value must be a valid Docker tag (`[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}`).
+
+**Rollback:** re-run the deploy job of the earlier workflow run whose version you want back (Actions → that run → *Re-run jobs* → the deploy job only). It passes that run's tag again — **if the registry still has it**. `cleanup-registry-packages` counts GHCR *versions*, and one build-push can create several (image index, platform manifest, provenance attestation), so `min_versions_to_keep: '3'` may keep less than one earlier build. Raise it to the number of builds you want to be able to roll back to, times about three. By hand on the server: edit `APP_TAG` in `.env` and `docker compose up -d`.
 
 ## How values reach the server
 
-All inputs travel as single-quoted shell assignments ahead of [`remote-deploy.sh`](remote-deploy.sh) (never `${{ }}` spliced into a script), and none of them is exported, so they cannot override variables of the same name in the server's `.env`.
+All inputs travel as single-quoted shell assignments ahead of [`remote-deploy.sh`](remote-deploy.sh) (never `${{ }}` spliced into a script), and none of them is exported, so they cannot override variables of the same name in the server's `.env`. Being single-quoted, `deploy_path` is taken literally: a `$HOME/…` in it is no longer expanded on the server (before, it was spliced inside double quotes and was) — use an absolute path.
+
+- **With `host_fingerprint`** the assignments and the script go over ssh's **stdin** to `sh -s`: no secret is in any process's arguments, on the runner or on the server.
+- **Without it** (`appleboy/ssh-action`), drone-ssh sends assignments + script as the SSH exec **command**, so for the length of the deploy the registry credential is in the server's process list (`ps`, `/proc/*/cmdline`), readable by other local users unless `/proc` is mounted with `hidepid`. That was already so before (the old script had the password spliced in). Setting `host_fingerprint` removes it. The SHA pin on `appleboy/ssh-action` also does not cover the code that receives the SSH key: v1.0.3 builds from the mutable image tag `ghcr.io/appleboy/drone-ssh:1.7.3`.
 
 ## Tests
 
@@ -98,5 +105,5 @@ No server needed:
 
 ```sh
 bash actions/deploy-docker-compose/tests/test-ssh-pinned.sh
-bash actions/deploy-docker-compose/tests/test-remote-deploy.sh   # SHELL_UNDER_TEST=bash / "busybox sh" too
+bash actions/deploy-docker-compose/tests/test-remote-deploy.sh   # SHELL_UNDER_TEST=bash / "busybox sh"; MODE=legacy
 ```

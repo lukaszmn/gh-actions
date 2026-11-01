@@ -72,8 +72,9 @@ runs:
         INPUT_REGISTRY_PASSWORD: ${{ inputs.registry_password }}
       run: |
         set -euo pipefail
-        # Normally masked already, being secrets; masked again in case a caller passes
-        # them from somewhere that is not.
+        # Masks the values for the steps after this one (the env block above has already
+        # been logged by then, and only a value's first line is masked). Secrets are
+        # masked by the runner anyway; this covers a caller passing a plain value.
         if [[ -n "$INPUT_GHCR_PULL_TOKEN" ]]; then echo "::add-mask::$INPUT_GHCR_PULL_TOKEN"; fi
         if [[ -n "$INPUT_REGISTRY_PASSWORD" ]]; then echo "::add-mask::$INPUT_REGISTRY_PASSWORD"; fi
         if [[ -z "$INPUT_GHCR_PULL_TOKEN" && -z "$INPUT_REGISTRY_PASSWORD" ]]; then
@@ -98,6 +99,11 @@ runs:
     # appleboy/ssh-action has a `fingerprint` input of its own, deliberately unused: its
     # Go client (x/crypto v0.17.0, drone-ssh 1.7.3) asks for ECDSA and RSA host keys
     # before Ed25519, so an Ed25519 fingerprint fails on any server that has those too.
+    # The SHA pin covers the action, NOT the code that receives the key: v1.0.3 builds
+    # `FROM ghcr.io/appleboy/drone-ssh:1.7.3`, a mutable image tag. Kept at v1.0.3 (not
+    # v1.2.x) because its envs/envs_format semantics were checked against drone-ssh
+    # 1.7.3's source; this path also puts the inputs (credential included) into the
+    # remote `sh -c` command line, as the old script did. host_fingerprint avoids both.
 
     - name: Read remote script
       id: remote_script
@@ -187,7 +193,7 @@ runs:
             printf '%s=%s\n' "$name" "$(sh_quote "${!name}")"
           done
           cat "$SCRIPT_PATH"
-        } | ssh -i "$ssh_dir/key" -p "$port" -l "$INPUT_USERNAME" \
+        } | ssh -F /dev/null -i "$ssh_dir/key" -p "$port" -l "$INPUT_USERNAME" \
               -o IdentitiesOnly=yes -o BatchMode=yes \
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile="$ssh_dir/known_hosts" -o GlobalKnownHostsFile=/dev/null \

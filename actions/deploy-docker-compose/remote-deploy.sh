@@ -22,31 +22,34 @@ valid_tag() {
     [ "$(printf '%s' "$1" | wc -l)" -eq 0 ]
 }
 
-# Replace the first APP_TAG= line of an env file in place (dropping any later
-# duplicates), or append one; every other line is kept byte for byte. Written to a temp
-# file in the same directory and renamed over the original, so a failure mid-write
-# never leaves a truncated .env; the original's mode is kept.
+# Replace the first APP_TAG= line of an env file (dropping any later duplicates), or
+# append one; every other line is kept byte for byte. The new content is built in a temp
+# file and then written INTO the existing file rather than renamed over it, so its inode,
+# owner, mode and any symlink survive (a rename would replace a symlinked .env with a
+# copy owned by the deploy user, and overwrite a deliberately read-only one).
+# `[ \t]`, not `[[:space:]]`: old mawk has no character classes.
 write_app_tag() {
   file=$1
   tag=$2
-  dir=$(dirname "$file")
-  tmp=$(mktemp "$dir/.env.app-tag.XXXXXX")
-  if ! awk -v tag="$tag" '
-      /^[[:space:]]*(export[[:space:]]+)?APP_TAG[[:space:]]*=/ {
+  tmp=$(mktemp "${TMPDIR:-/tmp}/env.app-tag.XXXXXX")
+  if awk -v tag="$tag" '
+      /^[ \t]*(export[ \t]+)?APP_TAG[ \t]*=/ {
         if (!done) { print "APP_TAG=" tag; done = 1 }
         next
       }
       { print }
       END { if (!done) print "APP_TAG=" tag }
-    ' "$file" >"$tmp"; then
+    ' "$file" >"$tmp" && cat "$tmp" >"$file"; then
+    rm -f "$tmp"
+  else
     rm -f "$tmp"
     return 1
   fi
-  chmod "$(stat -c '%a' "$file")" "$tmp" 2>/dev/null || chmod 600 "$tmp"
-  mv -f "$tmp" "$file"
 }
 
 main() {
+  # `cd ""` succeeds (into $HOME in some shells): an unset path must not deploy there.
+  [ -n "${DEPLOY_PATH:-}" ] || { echo "ERROR: deploy_path is empty" >&2; exit 1; }
   cd "$DEPLOY_PATH"
   test -f .env || { echo "ERROR: .env missing — create from .env.example" >&2; exit 1; }
   test -f "$DEPLOY_COMPOSE_FILE" || {
@@ -82,6 +85,8 @@ main() {
   docker image prune -f
 }
 
-# Everything above is only definitions, and stdin is cut off here: over `ssh … sh -s`
-# this script IS stdin, and a command that read from it would swallow the rest.
+# Over `ssh … sh -s` this script IS stdin, and a command reading stdin would swallow
+# whatever follows it. Everything above is only definitions, so nothing is left to
+# swallow by the time main runs; the redirect is a second guard, for edits that add
+# top-level commands below this line.
 main </dev/null
