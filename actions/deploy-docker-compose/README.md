@@ -107,4 +107,5 @@ No server needed:
 ```sh
 bash actions/deploy-docker-compose/tests/test-ssh-pinned.sh
 bash actions/deploy-docker-compose/tests/test-remote-deploy.sh   # SHELL_UNDER_TEST=bash / "busybox sh"; MODE=legacy
+bash actions/deploy-docker-compose/tests/test-action-env-lists.sh   # the DEPLOY_* names agree across action.yml and remote-deploy.sh (python3 + PyYAML)
 ```
