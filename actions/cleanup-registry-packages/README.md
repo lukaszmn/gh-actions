@@ -5,7 +5,9 @@ Deletes old GitHub package versions for multiple package names and keeps the new
 Main inputs:
 - `package_names`: newline-separated package names or image references
 - `min_versions_to_keep`: number of newest versions to keep
-- `cleanup_token`: token allowed to delete package versions (`github_token` is its old name and still works)
+- `cleanup_token`: token allowed to list and delete package versions
+
+**v2 (breaking):** the token input was `github_token` — renamed to `cleanup_token`, because it is not the workflow's `GITHUB_TOKEN` (which cannot delete user-owned versions). Callers still on `@v1` are unaffected.
 
 ```yaml
     - uses: lukaszmn/gh-actions/actions/cleanup-registry-packages@<sha or tag>

@@ -25,17 +25,10 @@ inputs:
     description: >-
       Token allowed to list and delete package versions: a classic PAT with
       `read:packages` and `delete:packages` (GITHUB_TOKEN cannot delete versions of
-      packages owned by a user). Suggested
-      secret name: GHCR_CLEANUP_TOKEN. It only needs to exist in GitHub — never pass it
-      to a server (the deploy has its own read-only GHCR_PULL_TOKEN).
-    required: false
-    default: ''
-  github_token:
-    description: >-
-      Old name of cleanup_token, kept so existing callers keep working. Used only when
-      cleanup_token is empty; one of the two is required.
-    required: false
-    default: ''
+      packages owned by a user). Suggested secret name: GHCR_CLEANUP_TOKEN. It only
+      needs to exist in GitHub — never pass it to a server (the deploy has its own
+      read-only GHCR_PULL_TOKEN). Replaces `github_token`, removed in v2.
+    required: true
 
 outputs:
   deleted_count:
@@ -49,19 +42,16 @@ runs:
       shell: bash
       env:
         INPUT_CLEANUP_TOKEN: ${{ inputs.cleanup_token }}
-        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -euo pipefail
-        # Masks a value passed as plain text (secrets are masked by the runner anyway).
-        if [[ -n "$INPUT_CLEANUP_TOKEN" ]]; then echo "::add-mask::$INPUT_CLEANUP_TOKEN"; fi
-        if [[ -n "$INPUT_GITHUB_TOKEN" ]]; then echo "::add-mask::$INPUT_GITHUB_TOKEN"; fi
-        if [[ -z "$INPUT_CLEANUP_TOKEN" && -z "$INPUT_GITHUB_TOKEN" ]]; then
-          echo "::error::Pass cleanup_token (or its old name github_token): a classic PAT with read:packages and delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN."
+        # `required: true` is not enforced for composite actions, and a missing or
+        # environment-scoped secret evaluates to ''. Masks a value passed as plain text
+        # (secrets are masked by the runner anyway).
+        if [[ -z "$INPUT_CLEANUP_TOKEN" ]]; then
+          echo "::error::Pass cleanup_token: a classic PAT with read:packages and delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN. github_token was removed in v2."
           exit 1
         fi
-        if [[ -n "$INPUT_CLEANUP_TOKEN" && -n "$INPUT_GITHUB_TOKEN" && "$INPUT_CLEANUP_TOKEN" != "$INPUT_GITHUB_TOKEN" ]]; then
-          echo "::notice::github_token is ignored because cleanup_token is set."
-        fi
+        echo "::add-mask::$INPUT_CLEANUP_TOKEN"
 
     - name: Cleanup package versions
       id: cleanup
@@ -73,7 +63,7 @@ runs:
         INPUT_OWNER: ${{ inputs.owner }}
         INPUT_OWNER_TYPE: ${{ inputs.owner_type }}
       with:
-        github-token: ${{ inputs.cleanup_token != '' && inputs.cleanup_token || inputs.github_token }}
+        github-token: ${{ inputs.cleanup_token }}
         script: |
           const owner = process.env.INPUT_OWNER || context.repo.owner;
           const ownerType = process.env.INPUT_OWNER_TYPE;
