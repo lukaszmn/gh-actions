@@ -51,5 +51,5 @@ Alternatives:
         keep-at-least: 2
         account-type: personal
         skip-tags: latest,prod,v*
-        token: ${{ secrets.GHCR_DELETE_TOKEN }}
+        token: ${{ secrets.GHCR_CLEANUP_TOKEN }}
 ```

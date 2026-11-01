@@ -44,13 +44,13 @@ runs:
         INPUT_CLEANUP_TOKEN: ${{ inputs.cleanup_token }}
       run: |
         set -euo pipefail
-        # `required: true` is not enforced for composite actions, and a missing or
-        # environment-scoped secret evaluates to ''. Masks a value passed as plain text
-        # (secrets are masked by the runner anyway).
+        # `required: true` is not enforced for action inputs, and a missing or
+        # environment-scoped secret evaluates to ''.
         if [[ -z "$INPUT_CLEANUP_TOKEN" ]]; then
           echo "::error::Pass cleanup_token: a classic PAT with read:packages and delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN. github_token was removed in v2."
           exit 1
         fi
+        # Masks a value passed as plain text (secrets are masked by the runner anyway).
         echo "::add-mask::$INPUT_CLEANUP_TOKEN"
 
     - name: Cleanup package versions
