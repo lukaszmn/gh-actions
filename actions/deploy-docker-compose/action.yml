@@ -23,8 +23,8 @@ inputs:
     required: true
   registry_password:
     description: >-
-      Registry password or token. Optional when ghcr_pull_token is given (which then
-      takes its place); one of the two is required.
+      Registry password or token (older form; prefer ghcr_pull_token). Optional when
+      ghcr_pull_token is given (which then takes its place); one of the two is required.
     required: false
     default: ''
   compose_file:
@@ -44,8 +44,8 @@ inputs:
   ghcr_pull_token:
     description: >-
       Read-only (read:packages) token used on the server for `docker login` instead of
-      registry_password, so a token with wider scopes never reaches the server. Empty
-      (default) logs in with registry_password as before.
+      registry_password, so a token with wider scopes never reaches the server. Suggested
+      secret name: GHCR_PULL_TOKEN. Empty (default) logs in with registry_password as before.
     required: false
     default: ''
   app_tag:

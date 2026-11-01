@@ -5,7 +5,29 @@ Deletes old GitHub package versions for multiple package names and keeps the new
 Main inputs:
 - `package_names`: newline-separated package names or image references
 - `min_versions_to_keep`: number of newest versions to keep
-- `github_token`: token allowed to delete package versions
+- `cleanup_token`: token allowed to delete package versions (`github_token` is its old name and still works)
+
+```yaml
+    - uses: lukaszmn/gh-actions/actions/cleanup-registry-packages@<sha or tag>
+      with:
+        package_names: |
+          ghcr.io/owner/app-api
+          ghcr.io/owner/app-nginx
+        min_versions_to_keep: '3'
+        cleanup_token: ${{ secrets.GHCR_CLEANUP_TOKEN }}
+```
+
+### Tokens: one per job, named for the job
+
+| Secret | Classic PAT scopes | Passed to | Ends up on the server |
+|---|---|---|---|
+| `GHCR_PULL_TOKEN` | `read:packages` | deploy-docker-compose `ghcr_pull_token` | yes (`docker login` stores it) |
+| `GHCR_CLEANUP_TOKEN` | `delete:packages` | cleanup-registry-packages `cleanup_token` | no — stays in GitHub |
+
+`GITHUB_TOKEN` cannot delete versions of packages owned by a **user** (403 "Resource not
+accessible"), hence a PAT; the GitHub container registry accepts only classic PATs. Keep the
+delete-capable token out of the deploy, so a compromised server cannot wipe the registry.
+If the secret is environment-scoped, the job needs `environment:` set or it resolves to `''`.
 
 Alternatives:
 ```yaml

@@ -21,9 +21,20 @@ inputs:
     description: Package owner type, either user or org.
     required: false
     default: user
+  cleanup_token:
+    description: >-
+      Token allowed to delete package versions: a classic PAT with `delete:packages`
+      (GITHUB_TOKEN cannot delete versions of packages owned by a user). Suggested
+      secret name: GHCR_CLEANUP_TOKEN. It only needs to exist in GitHub — never pass it
+      to a server (the deploy has its own read-only GHCR_PULL_TOKEN).
+    required: false
+    default: ''
   github_token:
-    description: Token with permission to delete package versions.
-    required: true
+    description: >-
+      Old name of cleanup_token, kept so existing callers keep working. Used only when
+      cleanup_token is empty; one of the two is required.
+    required: false
+    default: ''
 
 outputs:
   deleted_count:
@@ -33,6 +44,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate cleanup token
+      shell: bash
+      env:
+        INPUT_CLEANUP_TOKEN: ${{ inputs.cleanup_token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        set -euo pipefail
+        if [[ -z "$INPUT_CLEANUP_TOKEN" && -z "$INPUT_GITHUB_TOKEN" ]]; then
+          echo "::error::Pass cleanup_token (a classic PAT with delete:packages, e.g. secrets.GHCR_CLEANUP_TOKEN)."
+          exit 1
+        fi
+
     - name: Cleanup package versions
       id: cleanup
       uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -43,7 +66,7 @@ runs:
         INPUT_OWNER: ${{ inputs.owner }}
         INPUT_OWNER_TYPE: ${{ inputs.owner_type }}
       with:
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ inputs.cleanup_token != '' && inputs.cleanup_token || inputs.github_token }}
         script: |
           const owner = process.env.INPUT_OWNER || context.repo.owner;
           const ownerType = process.env.INPUT_OWNER_TYPE;
