@@ -1,0 +1,58 @@
+name: Publish GitHub Release
+description: >-
+  Creates (or, on a re-run, updates) the GitHub release of a version tag, with that version's
+  CHANGELOG section as its notes and optional files attached. Reads the CHANGELOG, never commits.
+
+inputs:
+  version_tag:
+    description: Release tag, for example v1.2.3. Its version (without the v) names the CHANGELOG section.
+    required: true
+  github_token:
+    description: Token for gh (needs contents write), e.g. github.token.
+    required: true
+  release_name:
+    description: Release title. {tag} becomes the tag (v1.2.3), {version} the version (1.2.3).
+    required: false
+    default: Release {tag}
+  changelog_path:
+    description: Path to the changelog, in the checked-out repository.
+    required: false
+    default: CHANGELOG.md
+  files:
+    description: >-
+      Files to attach, one path or glob per line (e.g. dist/*). Each line must match at least
+      one file. On a re-run they replace the attached files of the same name.
+    required: false
+    default: ''
+  version_tag_pattern:
+    description: Regex that version_tag must match. Guards against releasing a branch name such as "main".
+    required: false
+    default: '^v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.-]+)?$'
+
+outputs:
+  notes_path:
+    description: Path of the release notes written from the CHANGELOG.
+    value: ${{ steps.publish.outputs.notes_path }}
+
+runs:
+  using: composite
+  steps:
+    # No checkout here: actions/checkout cleans the workspace, which would delete files the job
+    # built or downloaded to attach. The job checks out first.
+    - name: Publish the release
+      id: publish
+      shell: bash
+      env:
+        VERSION_TAG: ${{ inputs.version_tag }}
+        VERSION_TAG_PATTERN: ${{ inputs.version_tag_pattern }}
+        RELEASE_NAME: ${{ inputs.release_name }}
+        CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        FILES: ${{ inputs.files }}
+        NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        GH_TOKEN: ${{ inputs.github_token }}
+        # The repository the workflow runs in, whatever the working directory holds.
+        GH_REPO: ${{ github.repository }}
+        SCRIPT_PATH: ${{ github.action_path }}/publish-release.sh
+      run: |
+        echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
+        bash "$SCRIPT_PATH"
