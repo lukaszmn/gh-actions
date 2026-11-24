@@ -53,6 +53,8 @@ runs:
         # The repository the workflow runs in, whatever the working directory holds.
         GH_REPO: ${{ github.repository }}
         SCRIPT_PATH: ${{ github.action_path }}/publish-release.sh
+        # The whole repository is fetched at the action's ref, so the sibling's script is there.
+        NOTES_SCRIPT: ${{ github.action_path }}/../check-release-changelog/release-notes.sh
       run: |
         echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
         bash "$SCRIPT_PATH"

@@ -5,6 +5,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 SCRIPT=${1:-$here/../publish-release.sh}
+NOTES_SCRIPT=${2:-$here/../../check-release-changelog/release-notes.sh}
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/work"
 cat > "$T/bin/gh" <<'G'
@@ -40,7 +41,8 @@ run() { # NAME=VALUE overrides
   (cd "$T/work" && env -i PATH="$T/bin:$PATH" HOME="$T" VERSION_TAG="$VERSION_TAG" \
     VERSION_TAG_PATTERN="$VERSION_TAG_PATTERN" RELEASE_NAME="$RELEASE_NAME" \
     CHANGELOG_PATH="$CHANGELOG_PATH" FILES="$FILES" NOTES_PATH="$T/notes.md" \
-    FAKE_EXISTS="$FAKE_EXISTS" FAKE_LOG="$FAKE_LOG" bash "$SCRIPT") > "$T/out" 2>&1
+    NOTES_SCRIPT="$NOTES_SCRIPT" FAKE_EXISTS="$FAKE_EXISTS" FAKE_LOG="$FAKE_LOG" \
+    bash "$SCRIPT") > "$T/out" 2>&1
 }
 gh_calls() { grep '^ARGV' "$FAKE_LOG"; }
 notes() { sed -n '/^NOTES:$/,/^END$/p' "$FAKE_LOG" | sed '1d;$d'; }

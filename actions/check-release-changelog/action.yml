@@ -1,0 +1,40 @@
+name: Check Release Changelog
+description: >-
+  Fails unless the checked-out CHANGELOG has an entry under the version tag's own section,
+  "## [X.Y.Z] - <date>" — the section the project's release script writes before it tags. Run it
+  first in a release workflow, so a tag pushed by hand stops before anything is built or deployed.
+
+inputs:
+  version_tag:
+    description: Release tag, for example v1.2.3. Its version (without the v) names the CHANGELOG section.
+    required: true
+  changelog_path:
+    description: Path to the changelog, in the checked-out repository.
+    required: false
+    default: CHANGELOG.md
+  version_tag_pattern:
+    description: Regex that version_tag must match. Guards against checking a branch name such as "main".
+    required: false
+    default: '^v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.-]+)?$'
+
+outputs:
+  notes_path:
+    description: Path of the version's section, written as release notes.
+    value: ${{ steps.check.outputs.notes_path }}
+
+runs:
+  using: composite
+  steps:
+    # No checkout here, as in publish-github-release: the job has checked out already.
+    - name: Check the version's CHANGELOG section
+      id: check
+      shell: bash
+      env:
+        VERSION_TAG: ${{ inputs.version_tag }}
+        VERSION_TAG_PATTERN: ${{ inputs.version_tag_pattern }}
+        CHANGELOG_PATH: ${{ inputs.changelog_path }}
+        NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        SCRIPT_PATH: ${{ github.action_path }}/release-notes.sh
+      run: |
+        echo "notes_path=$NOTES_PATH" >> "$GITHUB_OUTPUT"
+        bash "$SCRIPT_PATH"

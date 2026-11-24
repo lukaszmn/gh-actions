@@ -10,29 +10,15 @@
 #   CHANGELOG_PATH       the changelog to read
 #   FILES                files to attach: one path or glob per line, each must match a file
 #   NOTES_PATH           where the notes are written
+#   NOTES_SCRIPT         ../check-release-changelog/release-notes.sh
 #   gh's own: GH_TOKEN, GH_REPO
 set -euo pipefail
 
 fail() { echo "::error::$*"; exit 1; }
 
-[[ -n $VERSION_TAG ]] || fail "version_tag is empty."
-grep -qE -- "$VERSION_TAG_PATTERN" <<< "$VERSION_TAG" ||
-  fail "version_tag '$VERSION_TAG' does not look like a version tag (expected to match: $VERSION_TAG_PATTERN). If that is a branch name, gate the job with: if: startsWith(github.ref, 'refs/tags/')"
+# The tag checked and the notes written by the same script check-release-changelog runs.
+bash "$NOTES_SCRIPT"
 version=${VERSION_TAG#v}
-
-[[ -f $CHANGELOG_PATH ]] || fail "$CHANGELOG_PATH not found: check out the repository before this action."
-# The version's section, up to the next version's heading. index() == 1, not a regex: the dots
-# of the version would match any character.
-awk -v heading="## [$version] - " '
-  index($0, heading) == 1 { in_section = 1; next }
-  in_section && /^## \[/ { exit }
-  in_section { print }
-' "$CHANGELOG_PATH" > "$NOTES_PATH"
-# Only "### Added" and the like, or nothing at all, says nothing: refused like a missing section.
-# One grep reading to the end, no pipe into grep -q: that quits at the first match, and under
-# pipefail the SIGPIPE of the grep feeding it fails a long section at random.
-grep -v -e '^#' -e '^[[:space:]]*$' "$NOTES_PATH" > /dev/null ||
-  fail "$CHANGELOG_PATH has no entries under '## [$version] - <date>': the release script moves [Unreleased] there before tagging."
 
 files=()
 if [[ -n ${FILES//[[:space:]]/} ]]; then

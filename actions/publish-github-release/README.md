@@ -18,7 +18,7 @@ release:
     contents: write
   steps:
     - uses: actions/checkout@v5
-    - uses: lukaszmn/gh-actions/actions/publish-github-release@v2.1.0
+    - uses: lukaszmn/gh-actions/actions/publish-github-release@v2.2.0
       with:
         version_tag: ${{ github.ref_name }}
         github_token: ${{ github.token }}
@@ -40,7 +40,9 @@ Inputs:
 Output: `notes_path`, the notes file it wrote (in `RUNNER_TEMP`).
 
 It fails, publishing nothing, when the section is missing or holds only `###` headings. The
-release script should refuse that before it tags.
+release script should refuse that before it tags. The check and the notes come from
+`../check-release-changelog/release-notes.sh`: run `check-release-changelog` first in the
+workflow, and a tag pushed by hand stops before anything is built, with the same rule.
 
 ## No checkout inside
 
