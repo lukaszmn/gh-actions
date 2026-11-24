@@ -62,7 +62,7 @@ changelog "${CL[@]}"
 
 # A re-run: the release is there, so it is edited (title + notes), never created again.
 run FAKE_EXISTS=1; rc=$?
-[[ $rc == 0 && $(gh_calls) == $'ARGV: [release] [view] [v3.31]\nARGV: [release] [edit] [v3.31] [--title] [Release v3.31] [--notes-file] ['"$T"'/notes.md]' ]] &&
+[[ $rc == 0 && $(gh_calls) == $'ARGV: [release] [view] [v3.31]\nARGV: [release] [edit] [v3.31] [--draft=false] [--title] [Release v3.31] [--notes-file] ['"$T"'/notes.md]' ]] &&
   ok "re-run: edit, no create, no upload without files" || bad "re-run"
 
 # Titles: {tag} and {version}.
@@ -80,8 +80,28 @@ run FILES='dist/b c.exe'
 gh_calls | grep -qF '[create] [v3.31] [dist/b c.exe] [--title]' &&
   ok "files: a plain name with a space is one file" || bad "space in a plain name"
 run FILES='dist/*' FAKE_EXISTS=1
-[[ $(gh_calls | tail -1) == 'ARGV: [release] [upload] [v3.31] [dist/a.apk] [dist/b c.exe] [--clobber]' ]] &&
-  ok "re-run with files: upload --clobber" || bad "files on re-run"
+[[ $(gh_calls | sed -n 2p) == 'ARGV: [release] [upload] [v3.31] [dist/a.apk] [dist/b c.exe] [--clobber]' &&
+   $(gh_calls | sed -n 3p) == 'ARGV: [release] [edit] [v3.31] [--draft=false] '* ]] &&
+  ok "re-run with files: upload --clobber, then publish" || bad "files on re-run"
+
+# A long section (GitHub takes notes up to 125 000 characters): the check that it holds an entry
+# must not die of SIGPIPE when it stops reading at the first one. 10 runs, as it is a race.
+big=(); for ((n = 0; n < 4000; n++)); do big+=("- Entry number $n of a long release, padded out to some width."); done
+changelog '## [3.31] - 2026-11-24' "${big[@]}"
+bigfail=0; for ((n = 0; n < 10; n++)); do run || bigfail=1; done
+[[ $bigfail == 0 ]] && ok "a section of ~250 KB is published, never refused" || bad "long section"
+changelog "${CL[@]}"
+
+# A re-run publishes a draft left behind by a create that was killed while uploading.
+run FAKE_EXISTS=1
+gh_calls | grep -qF '[edit] [v3.31] [--draft=false]' && ok "re-run: edit publishes a leftover draft" || bad "draft on re-run"
+
+# action.yml hands the script every variable it reads, by the same name.
+action=$here/../action.yml
+miss=; for v in $(grep -oE '\$\{?[A-Z_]+' "$SCRIPT" | tr -d '${' | sort -u) GH_TOKEN GH_REPO; do
+  grep -qE "^        $v: " "$action" || miss+=" $v"
+done
+[[ -z $miss ]] && ok "action.yml sets every variable the script reads" || { echo "FAIL action.yml env lacks:$miss"; fail=1; }
 
 # Refusals: each fails before gh publishes anything.
 refused() { # LABEL EXPECTED-MESSAGE-PART NAME=VALUE...

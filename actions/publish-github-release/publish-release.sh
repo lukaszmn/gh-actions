@@ -29,7 +29,9 @@ awk -v heading="## [$version] - " '
   in_section { print }
 ' "$CHANGELOG_PATH" > "$NOTES_PATH"
 # Only "### Added" and the like, or nothing at all, says nothing: refused like a missing section.
-grep -v '^#' "$NOTES_PATH" | grep -q '[^[:space:]]' ||
+# One grep reading to the end, no pipe into grep -q: that quits at the first match, and under
+# pipefail the SIGPIPE of the grep feeding it fails a long section at random.
+grep -v -e '^#' -e '^[[:space:]]*$' "$NOTES_PATH" > /dev/null ||
   fail "$CHANGELOG_PATH has no entries under '## [$version] - <date>': the release script moves [Unreleased] there before tagging."
 
 files=()
@@ -63,10 +65,12 @@ title=${title//\{version\}/$version}
 # rather than failing the run. A view that fails for another reason (auth, network) lands in
 # create, which then fails with gh's own message.
 if gh release view "$VERSION_TAG" > /dev/null 2>&1; then
-  gh release edit "$VERSION_TAG" --title "$title" --notes-file "$NOTES_PATH"
+  # Files first, so that a draft is complete before it is published.
   if (( ${#files[@]} > 0 )); then
     gh release upload "$VERSION_TAG" "${files[@]}" --clobber
   fi
+  # --draft=false: a create killed while uploading leaves a draft behind, which view finds too.
+  gh release edit "$VERSION_TAG" --draft=false --title "$title" --notes-file "$NOTES_PATH"
   echo "Updated the release $VERSION_TAG ($title)."
 else
   # --verify-tag: a tag that is not on GitHub fails, rather than gh creating one at the default

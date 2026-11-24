@@ -2,7 +2,8 @@
 
 Creates the GitHub release of a version tag, with that version's CHANGELOG section as its notes
 and optional files attached. On a re-run, when the release is already there, it updates the title
-and notes and replaces the files instead of failing.
+and notes and replaces the files instead of failing; a draft left by a create that was killed
+while uploading is completed and published.
 
 It **only reads** the CHANGELOG. It is for projects whose release script has already moved
 `## [Unreleased]` to `## [X.Y.Z] - <date>` in the commit it tags, so nothing has to be committed
