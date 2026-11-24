@@ -70,7 +70,10 @@ if gh release view "$VERSION_TAG" > /dev/null 2>&1; then
     gh release upload "$VERSION_TAG" "${files[@]}" --clobber
   fi
   # --draft=false: a create killed while uploading leaves a draft behind, which view finds too.
-  gh release edit "$VERSION_TAG" --draft=false --title "$title" --notes-file "$NOTES_PATH"
+  # Publishing a draft whose tag is gone would make GitHub tag the default branch's head, so the
+  # tag is verified as on create (gh checks it only with --tag given).
+  gh release edit "$VERSION_TAG" --tag "$VERSION_TAG" --verify-tag --draft=false --title "$title" \
+    --notes-file "$NOTES_PATH"
   echo "Updated the release $VERSION_TAG ($title)."
 else
   # --verify-tag: a tag that is not on GitHub fails, rather than gh creating one at the default

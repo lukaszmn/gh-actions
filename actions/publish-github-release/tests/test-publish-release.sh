@@ -36,10 +36,11 @@ run() { # NAME=VALUE overrides
   local VERSION_TAG=v3.31 VERSION_TAG_PATTERN='^v[0-9]+(\.[0-9]+)*(-[0-9A-Za-z.-]+)?$' \
         RELEASE_NAME='Release {tag}' CHANGELOG_PATH=CHANGELOG.md FILES='' FAKE_EXISTS=''
   local kv; for kv in "$@"; do local "${kv%%=*}=${kv#*=}"; done
-  (cd "$T/work" && env PATH="$T/bin:$PATH" VERSION_TAG="$VERSION_TAG" \
+  # env -i: only what action.yml passes, so set -u catches a read of anything else.
+  (cd "$T/work" && env -i PATH="$T/bin:$PATH" HOME="$T" VERSION_TAG="$VERSION_TAG" \
     VERSION_TAG_PATTERN="$VERSION_TAG_PATTERN" RELEASE_NAME="$RELEASE_NAME" \
     CHANGELOG_PATH="$CHANGELOG_PATH" FILES="$FILES" NOTES_PATH="$T/notes.md" \
-    FAKE_EXISTS="$FAKE_EXISTS" bash "$SCRIPT") > "$T/out" 2>&1
+    FAKE_EXISTS="$FAKE_EXISTS" FAKE_LOG="$FAKE_LOG" bash "$SCRIPT") > "$T/out" 2>&1
 }
 gh_calls() { grep '^ARGV' "$FAKE_LOG"; }
 notes() { sed -n '/^NOTES:$/,/^END$/p' "$FAKE_LOG" | sed '1d;$d'; }
@@ -62,8 +63,8 @@ changelog "${CL[@]}"
 
 # A re-run: the release is there, so it is edited (title + notes), never created again.
 run FAKE_EXISTS=1; rc=$?
-[[ $rc == 0 && $(gh_calls) == $'ARGV: [release] [view] [v3.31]\nARGV: [release] [edit] [v3.31] [--draft=false] [--title] [Release v3.31] [--notes-file] ['"$T"'/notes.md]' ]] &&
-  ok "re-run: edit, no create, no upload without files" || bad "re-run"
+[[ $rc == 0 && $(gh_calls) == $'ARGV: [release] [view] [v3.31]\nARGV: [release] [edit] [v3.31] [--tag] [v3.31] [--verify-tag] [--draft=false] [--title] [Release v3.31] [--notes-file] ['"$T"'/notes.md]' ]] &&
+  ok "re-run: edit (publishing a leftover draft, its tag verified), no create, no upload" || bad "re-run"
 
 # Titles: {tag} and {version}.
 run RELEASE_NAME='MediaDok {version}'
@@ -81,7 +82,7 @@ gh_calls | grep -qF '[create] [v3.31] [dist/b c.exe] [--title]' &&
   ok "files: a plain name with a space is one file" || bad "space in a plain name"
 run FILES='dist/*' FAKE_EXISTS=1
 [[ $(gh_calls | sed -n 2p) == 'ARGV: [release] [upload] [v3.31] [dist/a.apk] [dist/b c.exe] [--clobber]' &&
-   $(gh_calls | sed -n 3p) == 'ARGV: [release] [edit] [v3.31] [--draft=false] '* ]] &&
+   $(gh_calls | sed -n 3p) == 'ARGV: [release] [edit] [v3.31] '* ]] &&
   ok "re-run with files: upload --clobber, then publish" || bad "files on re-run"
 
 # A long section (GitHub takes notes up to 125 000 characters): the check that it holds an entry
@@ -92,13 +93,9 @@ bigfail=0; for ((n = 0; n < 10; n++)); do run || bigfail=1; done
 [[ $bigfail == 0 ]] && ok "a section of ~250 KB is published, never refused" || bad "long section"
 changelog "${CL[@]}"
 
-# A re-run publishes a draft left behind by a create that was killed while uploading.
-run FAKE_EXISTS=1
-gh_calls | grep -qF '[edit] [v3.31] [--draft=false]' && ok "re-run: edit publishes a leftover draft" || bad "draft on re-run"
-
 # action.yml hands the script every variable it reads, by the same name.
 action=$here/../action.yml
-miss=; for v in $(grep -oE '\$\{?[A-Z_]+' "$SCRIPT" | tr -d '${' | sort -u) GH_TOKEN GH_REPO; do
+miss=; for v in $(grep -oE '\$\{?[#!]?[A-Z_][A-Z0-9_]*' "$SCRIPT" | tr -d '${#!' | sort -u) GH_TOKEN GH_REPO; do
   grep -qE "^        $v: " "$action" || miss+=" $v"
 done
 [[ -z $miss ]] && ok "action.yml sets every variable the script reads" || { echo "FAIL action.yml env lacks:$miss"; fail=1; }
