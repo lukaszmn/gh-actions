@@ -5,7 +5,9 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 SCRIPT=${1:-$here/../publish-release.sh}
-NOTES_SCRIPT=${2:-$here/../../check-release-changelog/release-notes.sh}
+# The notes script where action.yml points (github.action_path is the action's folder).
+NOTES_SCRIPT=${2:-$(sed -n 's|^        NOTES_SCRIPT: \${{ github.action_path }}|'"$here/.."'|p' "$here/../action.yml")}
+[[ -f $NOTES_SCRIPT ]] || { echo "FAIL action.yml's NOTES_SCRIPT is no file: '$NOTES_SCRIPT'"; exit 1; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/work"
 cat > "$T/bin/gh" <<'G'
@@ -97,7 +99,8 @@ changelog "${CL[@]}"
 
 # action.yml hands the script every variable it reads, by the same name.
 action=$here/../action.yml
-miss=; for v in $(grep -oE '\$\{?[#!]?[A-Z_][A-Z0-9_]*' "$SCRIPT" | tr -d '${#!' | sort -u) GH_TOKEN GH_REPO; do
+# Both scripts: publish-release.sh runs the notes script in its own environment.
+miss=; for v in $(cat "$SCRIPT" "$NOTES_SCRIPT" | grep -oE '\$\{?[#!]?[A-Z_][A-Z0-9_]*' | tr -d '${#!' | sort -u) GH_TOKEN GH_REPO; do
   grep -qE "^        $v: " "$action" || miss+=" $v"
 done
 [[ -z $miss ]] && ok "action.yml sets every variable the script reads" || { echo "FAIL action.yml env lacks:$miss"; fail=1; }
